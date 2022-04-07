@@ -42,7 +42,6 @@ def message(client , feed_id , payload):
         rooms[room_id].on_change = True
         rooms[room_id].states['No_people'] = int(payload)
     elif feed_id == 'bbc-door' and rooms[room_id].states['Door'] != bool(int(payload)):
-        print('Hi')
         rooms[room_id].on_change = True
         rooms[room_id].states['Door'] = bool(int(payload))
     elif feed_id == 'bbc-cam':
@@ -134,6 +133,6 @@ if __name__ == "__main__":
         for room_id in rooms:
             rooms[room_id].add_record()
         # Update the data every 10 seconds (if there is sth changed)
-        time.sleep(10)
+        time.sleep(2)
 
 # case there is no data in the feed yet ...
