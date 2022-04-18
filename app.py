@@ -58,38 +58,131 @@ class Room:
         self.on_change = True
         self.new_frame = True
         self.init = True
+        # self.time_frame = None
 
     def init_fetch(self):
-        global client
-        client.receive('bbc-door')
-        client.receive('bbc-relay')
-        client.receive('bbc-human')
-        client.receive('bbc-cam')
-        while len(self.states) != 4:
-            continue
-        # self.states = {'Door': True, 'No_people': 3, 'Light': False}
+        # global client
+        # client.receive('bbc-door')
+        # client.receive('bbc-relay')
+        # client.receive('bbc-human')
+        # client.receive('bbc-cam')
+
+        self.time_frame = datetime.datetime.now(tz=datetime.timezone.utc)
+
+        # wait until all data has been received
+        # while len(self.states) != 4:
+        #     continue
+        
+        self.states = {
+            'Light': True,
+            'No_people': 0,
+            'Door': True,
+            'Frame': "",
+        }
         self.init = False
         print("Initial data:")
         for key in self.states:
             if key != 'Frame':
                 print(f'{key}: {self.states[key]}')
+
     def add_record(self):
-        # new_id = len(db.collection(u'Room').get())
-        if self.on_change:
+        # if there are changes or after every 5 minutes, add a new record and update the statistics values
+        curr_time = datetime.datetime.now(tz=datetime.timezone.utc)
+        if self.on_change or (curr_time - self.time_frame).seconds >= 60:
+            self.time_frame = curr_time
+            time_string = curr_time.strftime('%Y-%m-%d')
+            # create a new record
             record = {
                 'Door status': self.states['Door'],
                 'Light status': self.states['Light'],
                 'Number of people': self.states['No_people'],
-                'Time stamp': datetime.datetime.now(tz=datetime.timezone.utc)
+                'Timestamp': datetime.datetime.now(tz=datetime.timezone.utc)
                 }
-            room_ref = db.collection('Room').document(str(room_id))
-            room_ref.update({'Records': firestore.ArrayUnion([record])})
-            self.on_change = False
-        if self.new_frame:
-            frame_ref = db.collection('Frame').document(f'Room {self.room_id}')
-            frame_ref.set({'frame64': self.states['Frame']})
-            self.new_frame = False
+            room_ref = db.collection('Room').document(str(self.room_id))
+            room_doc = room_ref.get()
+            # if room document does not exist, create it
+            if room_doc.exists:
+                room_ref.update({u'Status': record})
+            else:
+                room_ref.set({
+                    u'Id': self.room_id,
+                    u'Name': self.room_name,
+                    u'Status': record,
+                    u'Statistics': [],
+                    u'Frame': {}
+                })
 
+            # document of the current day
+            doc_ref = room_ref.collection('Day').document(time_string)
+            doc = doc_ref.get()
+            # if document already exists, update statistics also
+            if doc.exists:
+                doc_dict = doc.to_dict()
+                # print(doc_dict)
+                num_records = len(doc_dict['Records'])
+                last_record = doc_dict['Records'][-1]
+
+                if self.states['No_people'] == 0:
+                    average_people = doc_dict['People']
+                else:
+                    average_people = self.states['No_people']
+                    n = 1
+                    for rec in doc_dict['Records']:
+                        if rec['Number of people'] > 0:
+                            n += 1
+                            average_people += rec['Number of people']
+                    average_people = average_people / n
+
+                # Light usage 
+                light_usage = doc_dict['Usage']
+                if last_record['Light status'] == True:
+                    light_usage += (curr_time - last_record['Timestamp']).seconds
+
+
+                doc_ref.update({
+                    u'Records': firestore.ArrayUnion([record]),
+                    u'People': average_people,
+                    u'Usage': light_usage
+                })
+            # if document not exist, create new one
+            else:
+                average_people = self.states['No_people']
+                light_usage = 0
+                doc_ref.set({
+                    u'People': self.states['No_people'],
+                    u'Usage': 0,
+                    u'Records': [record]
+                })
+
+            # denormalization: also update statistics in parent node to save access time
+            stat = {
+                'Date': time_string,
+                'People': average_people,
+                'Usage': light_usage
+            }
+            room_doc = room_ref.get()
+            room_dict = room_doc.to_dict()
+            # list of room statistics
+            statistics = room_dict['Statistics']
+            if len(statistics) == 0 or statistics[-1]['Date'] != time_string:
+                statistics.append(stat)
+            else:
+                statistics[-1] = stat
+
+            room_ref.update({'Statistics': statistics})
+
+            # set change flag to false
+            self.on_change = False
+        
+        if self.new_frame:
+            curr_time = datetime.datetime.now(tz=datetime.timezone.utc)
+            room_ref = db.collection('Room').document(self.room_id)
+            frame_data = {
+                u'Frame64': self.states['Frame'],
+                u'Timestamp': curr_time
+            }
+            room_ref.update({u'Frame': frame_data})
+            self.new_frame = False
 
 if __name__ == "__main__":
     # Use a service account
@@ -100,6 +193,7 @@ if __name__ == "__main__":
     
     # All room data
     rooms = {'1': Room('1', 'Lab ABC')}
+    # rooms = {'2': Room('2', 'Lab DEF')}
     
     # Client info
     with open("adafruit_key.json", "r") as f:
@@ -123,8 +217,9 @@ if __name__ == "__main__":
     client.on_subscribe = subscribe
     client.connect()
     client.loop_background()
-    # wait 5 secs for the client to be established
-    time.sleep(5)
+    # # wait 5 secs for the client to be established
+    # time.sleep(5)
+
     for room_id in rooms:
         rooms[room_id].init_fetch()
  
@@ -132,7 +227,7 @@ if __name__ == "__main__":
     while True:
         for room_id in rooms:
             rooms[room_id].add_record()
-        # Update the data every 10 seconds (if there is sth changed)
+        # delay for 2 seconds
         time.sleep(2)
 
 # case there is no data in the feed yet ...
