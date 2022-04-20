@@ -33,11 +33,16 @@ def message(client , feed_id , payload):
             rooms[room_id].states['Door'] = bool(int(payload))
         elif feed_id == 'bbc-cam':
             rooms[room_id].states['Frame'] = payload
+        elif feed_id == 'bbc-alert':
+            rooms[room_id].states['Alert'] = bool(int(payload))
         return
 
     if feed_id == 'bbc-relay' and rooms[room_id].states['Light'] != bool(int(payload)):
         rooms[room_id].on_change = True
         rooms[room_id].states['Light'] = bool(int(payload))
+    elif feed_id == 'bbc-alert' and rooms[room_id].states['Alert'] != bool(int(payload)):
+        rooms[room_id].on_change = True
+        rooms[room_id].states['Alert'] = bool(int(payload))
     elif feed_id == 'bbc-human' and rooms[room_id].states['No_people'] != int(payload):
         rooms[room_id].on_change = True
         rooms[room_id].states['No_people'] = int(payload)
@@ -70,15 +75,16 @@ class Room:
         self.time_frame = datetime.datetime.now(tz=datetime.timezone.utc)
 
         # wait until all data has been received
-        # while len(self.states) != 4:
-        #     continue
+        while len(self.states) != 5:
+            continue
         
-        self.states = {
-            'Light': True,
-            'No_people': 0,
-            'Door': True,
-            'Frame': "",
-        }
+        # self.states = {
+        #     'Light': True,
+        #     'No_people': 0,
+        #     'Door': True,
+        #     'Frame': "",
+        #     'Alert': False
+        # }
         self.init = False
         print("Initial data:")
         for key in self.states:
@@ -96,6 +102,7 @@ class Room:
                 'Door status': self.states['Door'],
                 'Light status': self.states['Light'],
                 'Number of people': self.states['No_people'],
+                'Alert': self.states['Alert'],
                 'Timestamp': datetime.datetime.now(tz=datetime.timezone.utc)
                 }
             room_ref = db.collection('Room').document(str(self.room_id))
@@ -203,7 +210,8 @@ if __name__ == "__main__":
                    "frame": "bbc-cam",
                    "relay": "bbc-relay",
                    "buzzer": "bbc-buzzer",
-                   "door": "bbc-door"
+                   "door": "bbc-door",
+                   "alert": "bbc-alert"
                    }
 
     AIO_USERNAME = str(api_key['Username'])
